@@ -1,31 +1,41 @@
 {
   "name": "itt-autocomplete",
+  "publisher": "TurtleDSR",
   "displayName": "ITT-AutoComplete",
   "description": "Adds autocomplete suggestions to angelscript to support It Takes Two modding better. Only use when modding for It Takes Two specifically since it adds functions exposed specifically in ITT's case.",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "engines": {
     "vscode": "^1.137.0"
   },
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onLanguage:angelscript"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
-    "commands": [
+    "languages": [
       {
-        "command": "itt-autocomplete.helloWorld",
-        "title": "Hello World"
+        "id": "angelscript",
+        "aliases": [
+          "AngelScript",
+          "as"
+        ],
+        "extensions": [
+          ".as"
+        ]
       }
     ]
   },
   "scripts": {
-    "vscode:prepublish": "npm run package",
-    "compile": "npm run check-types && npm run lint && node esbuild.js",
+    "vscode:prepublish": "npm run compile",
+    "copy-native": "node -e \"require('fs').cpSync('node_modules/better-sqlite3/build/Release', 'build/Release', {recursive: true})\"",
+    "compile": "tsc -p tsconfig.json && npm run copy-native",
     "watch": "npm-run-all -p watch:*",
     "watch:esbuild": "node esbuild.js --watch",
     "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
-    "package": "npm run check-types && npm run lint && node esbuild.js --production",
+    "package": "vsce package",
     "compile-tests": "tsc -p . --outDir out",
     "watch-tests": "tsc -p . -w --outDir out",
     "pretest": "npm run compile-tests && npm run compile && npm run lint",
@@ -34,19 +44,38 @@
     "test": "vscode-test"
   },
   "devDependencies": {
-    "@types/vscode": "^1.137.0",
+    "@electron/rebuild": "^4.2.0",
+    "@types/better-sqlite3": "^9.6.0",
     "@types/mocha": "^10.0.10",
-    "@types/node": "24.x",
-    "typescript-eslint": "^8.61.1",
-    "eslint": "^10.5.0",
+    "@types/node": "^26.5.1",
+    "@types/stream-json": "^1.7.8",
+    "@types/vscode": "^1.137.0",
+    "@vscode/test-cli": "^0.0.15",
+    "@vscode/test-electron": "^3.0.0",
     "esbuild": "^0.28.1",
+    "eslint": "^10.5.0",
     "npm-run-all": "^4.1.5",
     "typescript": "^6.0.3",
-    "@vscode/test-cli": "^0.0.15",
-    "@vscode/test-electron": "^3.0.0"
+    "typescript-eslint": "^8.61.1"
   },
   "overrides": {
     "diff": "^8.0.4",
     "serialize-javascript": "^7.0.6"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.18.0",
+    "better-sqlite3": "^13.0.3",
+    "postinstall": "^0.11.2",
+    "stream-json": "^3.6.0",
+    "vsce": "^1.25.1"
+  },
+  "allowScripts": {
+    "stream-json@3.6.0": true,
+    "postinstall@0.11.2": true,
+    "esbuild@0.28.2": true,
+    "better-sqlite3@13.0.3": true
+  },
+  "repository": {
+    "url": "https://github.com/TurtleDSR/itt-autocomplete"
   }
 }

@@ -12,3 +12,8 @@ vsc-extension-quickstart.md
 **/*.map
 **/*.ts
 **/.vscode-test.*
+
+!dist/**
+!build/Release/**
+!data/symbols.db
+!node_modules/better-sqlite3/**

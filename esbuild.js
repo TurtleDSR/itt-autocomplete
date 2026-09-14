@@ -3,6 +3,15 @@ const esbuild = require("esbuild");
 const production = process.argv.includes('--production');
 const watch = process.argv.includes('--watch');
 
+require('esbuild').build({
+  entryPoints: ['./src/extension.ts'],
+  bundle: true,
+  outfile: './dist/extension.js',
+  external: ['vscode', 'better-sqlite3'],
+  format: 'cjs',
+  platform: 'node',
+});
+
 /**
  * @type {import('esbuild').Plugin}
  */
