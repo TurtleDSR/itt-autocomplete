@@ -735,11 +735,15 @@ var vscode = __toESM(require("vscode"));
 var import_better_sqlite3 = __toESM(require_lib());
 var path = __toESM(require("path"));
 var db = null;
-var searchFunctions;
-var searchVariables;
-var searchTypes;
-var searchEnums;
-var searchTypeMethods;
+var searchFunctionsFromName;
+var searchVariablesFromName;
+var searchTypesFromName;
+var searchEnumsFromName;
+var searchFunctionsFromNamespace;
+var searchVariablesFromNamespace;
+var searchTypesFromNamespace;
+var searchEnumsFromNamespace;
+var searchNamespaces;
 function activate(context) {
   console.log("ITT Angelscript Autocomplete Active");
   const dbPath = path.join(context.extensionPath, "data", "symbols.db");
@@ -754,24 +758,41 @@ function activate(context) {
       readonly: true,
       nativeBinding: nativeBindingPath
     });
-    searchFunctions = db.prepare(`
-      SELECT name, return_type, params FROM functions 
-      WHERE name LIKE ? || '%' LIMIT 40
+    searchFunctionsFromName = db.prepare(`
+      SELECT name, namespace, module, return_type, params FROM functions 
+      WHERE LOWER(name) LIKE LOWER(?) || '%'
     `);
-    searchVariables = db.prepare(`
-      SELECT name, type FROM variables 
-      WHERE name LIKE ? || '%' LIMIT 40
+    searchVariablesFromName = db.prepare(`
+      SELECT name, namespace, module, type FROM variables 
+      WHERE LOWER(name) LIKE LOWER(?) || '%'
     `);
-    searchTypes = db.prepare(`
-      SELECT name, constructors, methods, properties FROM types 
-      WHERE name LIKE ? || '%' LIMIT 40
+    searchTypesFromName = db.prepare(`
+      SELECT name, namespace, module, constructors, methods, properties FROM types 
+      WHERE LOWER(name) LIKE LOWER(?) || '%'
     `);
-    searchEnums = db.prepare(`
-      SELECT name, enum_values FROM enums 
-      WHERE name LIKE ? || '%' LIMIT 40
+    searchEnumsFromName = db.prepare(`
+      SELECT name, namespace, module, enum_values FROM enums 
+      WHERE LOWER(name) LIKE LOWER(?) || '%'
     `);
-    searchTypeMethods = db.prepare(`
-      SELECT methods, properties FROM types WHERE name = ? LIMIT 1
+    searchFunctionsFromNamespace = db.prepare(`
+      SELECT name, namespace, module, return_type, params FROM functions 
+      WHERE namespace = ? COLLATE NOCASE
+    `);
+    searchVariablesFromNamespace = db.prepare(`
+      SELECT name, namespace, module, type FROM variables 
+      WHERE namespace = ? COLLATE NOCASE
+    `);
+    searchTypesFromNamespace = db.prepare(`
+      SELECT name, namespace, module, constructors, methods, properties FROM types 
+      WHERE namespace = ? COLLATE NOCASE
+    `);
+    searchEnumsFromNamespace = db.prepare(`
+      SELECT name, namespace, module, enum_values FROM enums 
+      WHERE namespace = ? COLLATE NOCASE
+    `);
+    searchNamespaces = db.prepare(`
+      SELECT namespace, module FROM namespaces 
+      WHERE LOWER(namespace) LIKE LOWER(?) || '%'
     `);
   } catch (err) {
     vscode.window.showErrorMessage(`Failed to load symbol database: ${err}`);
@@ -787,80 +808,301 @@ function activate(context) {
     }
     const lineText = document.lineAt(position).text;
     const lineUntilCursor = lineText.substring(0, position.character);
-    const memberMatch = lineUntilCursor.match(/([a-zA-Z_][a-zA-Z0-9_]*)(?:\.|\:\:)$/);
+    const memberMatch = lineUntilCursor.match(/([a-zA-Z_][a-zA-Z0-9_]*)(\.|::)$/);
     if (memberMatch) {
-      const typeName = memberMatch[1];
-      return getMemberCompletions(typeName);
+      const [, identifier, delimiter] = memberMatch;
+      if (delimiter === "::") {
+        return getNamespaceCompletions(identifier, document);
+      } else {
+        return getMemberCompletions(identifier, document);
+      }
     }
     const wordMatch = lineUntilCursor.match(/([a-zA-Z_][a-zA-Z0-9_]*)$/);
     const prefix = wordMatch ? wordMatch[1] : "";
     if (!prefix && context2.triggerKind !== vscode.CompletionTriggerKind.Invoke) {
       return [];
     }
-    return getGlobalCompletions(prefix, lineUntilCursor);
+    return getGlobalCompletions(prefix, lineUntilCursor, document);
   } }, ".", ":");
   context.subscriptions.push(provider);
-}
-function getMemberCompletions(typename) {
-  const items = [];
-  const record = searchTypeMethods.get(typename);
-  if (!record) {
-    return items;
-  }
-  const methods = JSON.parse(record.methods || "[]");
-  for (const m of methods) {
-    const item = new vscode.CompletionItem(m.Name, vscode.CompletionItemKind.Method);
-    const paramsStr = (m.Parameters || []).map((p) => `${p.Type} ${p.Name}`).join(", ");
-    item.detail = `${m.ReturnType} ${m.Name}(${paramsStr})`;
-    items.push(item);
-  }
-  const properties = JSON.parse(record.properties || "[]");
-  for (const p of properties) {
-    const item = new vscode.CompletionItem(p.Name, vscode.CompletionItemKind.Field);
-    item.detail = `${p.Type} ${p.Name}`;
-    items.push(item);
-  }
-  return items;
-}
-function getGlobalCompletions(prefix, lineUntilCursor) {
-  const items = [];
-  const isNewKeyword = /\bnew\s+[a-zA-Z0-9_]*$/.test(lineUntilCursor);
-  const types = searchTypes.all(prefix);
-  for (const t of types) {
-    const item = new vscode.CompletionItem(t.name, vscode.CompletionItemKind.Class);
-    item.detail = `class ${t.name}`;
-    if (isNewKeyword) {
-      item.insertText = new vscode.SnippetString(`${t.name}($1)`);
-    } else {
-      item.insertText = t.name;
-    }
-    items.push(item);
-  }
-  const funcs = searchFunctions.all(prefix);
-  for (const f of funcs) {
-    const item = new vscode.CompletionItem(f.name, vscode.CompletionItemKind.Function);
-    const parsedParams = JSON.parse(f.params || "[]");
-    const params = parsedParams.map((p) => `${p.Type} ${p.Name}`).join(", ");
-    item.detail = `${f.return_type} ${f.name}(${params})`;
-    items.push(item);
-  }
-  const vars = searchVariables.all(prefix);
-  for (const v of vars) {
-    const item = new vscode.CompletionItem(v.name, vscode.CompletionItemKind.Variable);
-    item.detail = `${v.type} ${v.name}`;
-    items.push(item);
-  }
-  const enums = searchEnums.all(prefix);
-  for (const e of enums) {
-    const item = new vscode.CompletionItem(e.name, vscode.CompletionItemKind.Enum);
-    items.push(item);
-  }
-  return items;
 }
 function deactivate() {
   if (db) {
     db.close();
   }
+}
+function getMemberCompletions(typename, document) {
+  const items = [];
+  const typerecord = searchTypesFromName.get(typename);
+  if (typerecord) {
+    const methods = JSON.parse(typerecord.methods || "[]");
+    for (const m of methods) {
+      const item = new vscode.CompletionItem(m.Name, vscode.CompletionItemKind.Method);
+      const parsedParams = JSON.parse(m.params || "[]");
+      const params = parsedParams.map((p) => {
+        const type = p.Type ? p.Type.trim() : "";
+        const name = p.Name ? p.Name.trim() : "";
+        const defaultValue = p.default ? ` = ${p.default.trim()}` : "";
+        return [type, name].filter(Boolean).join(" ") + defaultValue;
+      }).filter(Boolean).join(", ");
+      item.detail = `${m.ReturnType} ${m.Name}(${params})`;
+      item.insertText = new vscode.SnippetString(`${m.Name}($1);`);
+      item.documentation = buildDoc(m.module, m.namespace);
+      if (m.module) {
+        attemptImport(m.module, item, document);
+      }
+      items.push(item);
+    }
+    const properties = JSON.parse(typerecord.properties || "[]");
+    for (const p of properties) {
+      const item = new vscode.CompletionItem(p.Name, vscode.CompletionItemKind.Field);
+      item.detail = `${p.Type} ${p.Name}`;
+      item.documentation = buildDoc(p.module, p.namespace);
+      if (p.module) {
+        attemptImport(p.module, item, document);
+      }
+      items.push(item);
+    }
+  }
+  const enumrecord = searchEnumsFromName.get(typename);
+  if (enumrecord && enumrecord.enum_values) {
+    const values = JSON.parse(enumrecord.enum_values);
+    for (const v of values) {
+      const item = new vscode.CompletionItem(v, vscode.CompletionItemKind.EnumMember);
+      item.detail = `${v}`;
+      item.documentation = buildDoc(enumrecord.module, enumrecord.namespace);
+      if (enumrecord.module) {
+        attemptImport(enumrecord.module, item, document);
+      }
+      items.push(item);
+    }
+  }
+  return items;
+}
+function getNamespaceCompletions(namespace, document) {
+  const items = [];
+  const funcs = searchFunctionsFromNamespace.all(namespace);
+  for (const f of funcs) {
+    const item = new vscode.CompletionItem(f.name, vscode.CompletionItemKind.Function);
+    const parsedParams = JSON.parse(f.params || "[]");
+    const params = parsedParams.map((p) => {
+      const type = p.Type ? p.Type.trim() : "";
+      const name = p.Name ? p.Name.trim() : "";
+      const defaultValue = p.default ? ` = ${p.default.trim()}` : "";
+      return [type, name].filter(Boolean).join(" ") + defaultValue;
+    }).filter(Boolean).join(", ");
+    item.detail = `${f.return_type} ${f.name}(${params})`;
+    item.insertText = new vscode.SnippetString(`${f.name}($1);`);
+    item.documentation = buildDoc(f.module, f.namespace);
+    if (f.module) {
+      attemptImport(f.module, item, document);
+    }
+    items.push(item);
+  }
+  const vars = searchVariablesFromNamespace.all(namespace);
+  for (const v of vars) {
+    const item = new vscode.CompletionItem(v.name, vscode.CompletionItemKind.Variable);
+    item.detail = `${v.type} ${v.name}`;
+    item.insertText = new vscode.SnippetString(`${v.name};`);
+    item.documentation = buildDoc(v.module, v.namespace);
+    if (v.module) {
+      attemptImport(v.module, item, document);
+    }
+    items.push(item);
+  }
+  const enums = searchEnumsFromNamespace.all(namespace);
+  for (const e of enums) {
+    const item = new vscode.CompletionItem(e.name, vscode.CompletionItemKind.Enum);
+    item.detail = `enum ${e.name}`;
+    item.insertText = new vscode.SnippetString(`${e.name}`);
+    item.documentation = buildDoc(e.module, e.namespace);
+    if (e.module) {
+      attemptImport(e.module, item, document);
+    }
+    items.push(item);
+  }
+  const types = searchTypesFromNamespace.all(namespace);
+  for (const t of types) {
+    const item = new vscode.CompletionItem(t.name, vscode.CompletionItemKind.Class);
+    item.detail = `class ${t.name}`;
+    item.insertText = new vscode.SnippetString(`${t.name}`);
+    item.documentation = buildDoc(t.module, t.namespace);
+    if (t.module) {
+      attemptImport(t.module, item, document);
+    }
+    items.push(item);
+  }
+  return items;
+}
+function getGlobalCompletions(prefix, lineUntilCursor, document) {
+  const items = [];
+  const isNewKeyword = /\bnew\s+[a-zA-Z0-9_]*$/.test(lineUntilCursor);
+  if (isNewKeyword) {
+    const types = searchTypesFromName.all(prefix);
+    for (const t of types) {
+      const item = new vscode.CompletionItem(t.name, vscode.CompletionItemKind.Constructor);
+      const constructors = JSON.parse(t.constructors || "[]");
+      if (constructors.length > 0) {
+        for (const c of constructors) {
+          const parsedParams = JSON.parse(c.params || "[]");
+          const params = parsedParams.map((p) => {
+            const type = p.Type ? p.Type.trim() : "";
+            const name = p.Name ? p.Name.trim() : "";
+            const defaultValue = p.default ? ` = ${p.default.trim()}` : "";
+            return [type, name].filter(Boolean).join(" ") + defaultValue;
+          }).filter(Boolean).join(", ");
+          const constructorItem = new vscode.CompletionItem(t.name, vscode.CompletionItemKind.Constructor);
+          constructorItem.detail = `${t.name}(${params})`;
+          constructorItem.insertText = new vscode.SnippetString(`${t.name}($1);`);
+          constructorItem.documentation = buildDoc(t.module, t.namespace);
+          if (t.module) {
+            attemptImport(t.module, item, document);
+          }
+          items.push(constructorItem);
+        }
+      } else {
+        item.detail = `${t.name}()`;
+        item.insertText = new vscode.SnippetString(`${t.name}($1);`);
+        item.documentation = buildDoc(t.module, t.namespace);
+        if (t.module) {
+          attemptImport(t.module, item, document);
+        }
+        items.push(item);
+      }
+    }
+    return items;
+  } else {
+    const namespaces = searchNamespaces.all(prefix);
+    for (const n of namespaces) {
+      const item = new vscode.CompletionItem(n.namespace, vscode.CompletionItemKind.Module);
+      item.detail = `namespace ${n.namespace}`;
+      item.insertText = new vscode.SnippetString(`${n.namespace}::`);
+      item.documentation = buildDoc(n.module);
+      item.command = {
+        command: "editor.action.triggerSuggest",
+        title: "trigger-suggest"
+      };
+      if (n.module) {
+        attemptImport(n.module, item, document);
+      }
+      items.push(item);
+    }
+    const types = searchTypesFromName.all(prefix);
+    for (const t of types) {
+      const item = new vscode.CompletionItem(t.name, vscode.CompletionItemKind.Class);
+      item.detail = `class ${t.name}`;
+      const ns = t.namespace ? `${t.namespace}::` : "";
+      item.insertText = new vscode.SnippetString(`${ns}${t.name}`);
+      item.documentation = buildDoc(t.module, t.namespace);
+      if (t.module) {
+        attemptImport(t.module, item, document);
+      }
+      items.push(item);
+    }
+  }
+  const funcs = searchFunctionsFromName.all(prefix);
+  for (const f of funcs) {
+    const item = new vscode.CompletionItem(f.name, vscode.CompletionItemKind.Function);
+    const parsedParams = JSON.parse(f.params || "[]");
+    const params = parsedParams.map((p) => {
+      const type = p.Type ? p.Type.trim() : "";
+      const name = p.Name ? p.Name.trim() : "";
+      const defaultValue = p.default ? ` = ${p.default.trim()}` : "";
+      return [type, name].filter(Boolean).join(" ") + defaultValue;
+    }).filter(Boolean).join(", ");
+    item.detail = `${f.return_type} ${f.name}(${params})`;
+    const ns = f.namespace ? `${f.namespace}::` : "";
+    item.insertText = new vscode.SnippetString(`${ns}${f.name}($1);`);
+    item.documentation = buildDoc(f.module, f.namespace);
+    if (f.module) {
+      attemptImport(f.module, item, document);
+    }
+    items.push(item);
+  }
+  const vars = searchVariablesFromName.all(prefix);
+  for (const v of vars) {
+    const item = new vscode.CompletionItem(v.name, vscode.CompletionItemKind.Variable);
+    item.detail = `${v.type} ${v.name}`;
+    const ns = v.namespace ? `${v.namespace}::` : "";
+    item.insertText = new vscode.SnippetString(`${ns}${v.name};`);
+    item.documentation = buildDoc(v.module, v.namespace);
+    if (v.module) {
+      attemptImport(v.module, item, document);
+    }
+    items.push(item);
+  }
+  const enums = searchEnumsFromName.all(prefix);
+  for (const e of enums) {
+    const item = new vscode.CompletionItem(e.name, vscode.CompletionItemKind.Enum);
+    item.detail = `enum ${e.name}`;
+    const ns = e.namespace ? `${e.namespace}::` : "";
+    item.insertText = new vscode.SnippetString(`${ns}${e.name}`);
+    item.documentation = buildDoc(e.module, e.namespace);
+    if (e.module) {
+      attemptImport(e.module, item, document);
+    }
+    items.push(item);
+  }
+  return items;
+}
+function buildDoc(moduleName, namespaceName) {
+  const md = new vscode.MarkdownString();
+  md.isTrusted = true;
+  const mod = moduleName || "Global";
+  const ns = namespaceName ? `
+
+**Namespace:** \`${namespaceName}\`` : "";
+  md.appendMarkdown(`**Source:** \`${mod}\`${ns}`);
+  return md;
+}
+function attemptImport(module2, item, document) {
+  const text = document.getText();
+  const hasImport = text.includes(`import ${module2};`);
+  if (!hasImport) {
+    item.additionalTextEdits = [
+      vscode.TextEdit.insert(new vscode.Position(getImportInsertionLine(document), 0), `import ${module2};
+`)
+    ];
+  }
+}
+function getImportInsertionLine(document) {
+  let lastImportLine = -1;
+  let firstEmptyLine = -1;
+  let inBlockComment = false;
+  for (let i = 0; i < document.lineCount; i++) {
+    const lineText = document.lineAt(i).text.trim();
+    if (inBlockComment) {
+      if (lineText.includes("*/")) {
+        inBlockComment = false;
+      }
+      continue;
+    }
+    if (lineText.startsWith("/*")) {
+      if (!lineText.includes("*/")) {
+        inBlockComment = true;
+      }
+      continue;
+    }
+    if (lineText.startsWith("//")) {
+      continue;
+    }
+    if (lineText === "" && firstEmptyLine === -1) {
+      firstEmptyLine = i;
+    }
+    if (lineText.startsWith("import ")) {
+      lastImportLine = i;
+    }
+    if (lastImportLine === -1 && /^(UCLASS|USTRUCT|UENUM|UINTERFACE|class|struct|enum|namespace|event|funcdef)\b/.test(lineText)) {
+      break;
+    }
+  }
+  if (lastImportLine !== -1) {
+    return lastImportLine + 1;
+  }
+  if (firstEmptyLine !== -1) {
+    return firstEmptyLine;
+  }
+  return 0;
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {

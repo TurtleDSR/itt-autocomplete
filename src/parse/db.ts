@@ -47,6 +47,11 @@ function run() {
         type TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS namespaces (
+        namespace TEXT PRIMARY KEY,
+        module TEXT
+      );
+
       CREATE INDEX IF NOT EXISTS idx_types_ns ON types(namespace);
       CREATE INDEX IF NOT EXISTS idx_enums_ns ON enums(namespace);
       CREATE INDEX IF NOT EXISTS idx_funcs_name ON functions(name);
@@ -75,8 +80,19 @@ function run() {
       VALUES (@name, @namespace, @module, @type)
     `);
 
+    const insertNamespace = db.prepare(`
+      INSERT OR IGNORE INTO namespaces (namespace, module)
+      VALUES (@namespace, @module)
+    `);
+
     const insertTypes = db.transaction((types: Type[]) => { //insert all types
       for(const t of types) {
+        if(t.Namespace) {
+          insertNamespace.run({
+            namespace: t.Namespace,
+            module: t.Module || null,
+          });
+        }
         insertType.run({
           name: t.Name,
           namespace: t.Namespace || null,
@@ -90,6 +106,12 @@ function run() {
 
     const insertEnums = db.transaction((enums: Enum[]) => { //insert all enums
       for(const e of enums) {
+        if(e.Namespace) {
+          insertNamespace.run({
+            namespace: e.Namespace,
+            module: e.Module || null,
+          });
+        }
         insertEnum.run({
           name: e.Name,
           namespace: e.Namespace || null,
@@ -101,6 +123,12 @@ function run() {
 
     const insertFunctions = db.transaction((functions: Function[]) => { //insert all functions
       for(const f of functions) {
+        if(f.Namespace) {
+          insertNamespace.run({
+            namespace: f.Namespace,
+            module: f.Module || null,
+          });
+        }
         insertFunction.run({
           name: f.Name,
           namespace: f.Namespace || null,
@@ -113,6 +141,12 @@ function run() {
 
     const insertVars = db.transaction((vars: Variable[]) => { //insert all variables
       for(const v of vars) {
+        if(v.Namespace) {
+          insertNamespace.run({
+            namespace: v.Namespace,
+            module: v.Module || null,
+          });
+        }
         insertVar.run({
           name: v.Name,
           namespace: v.Namespace || null,

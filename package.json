@@ -2,8 +2,9 @@
   "name": "itt-autocomplete",
   "publisher": "TurtleDSR",
   "displayName": "ITT-AutoComplete",
+  "icon": "images/icon.png",
   "description": "Adds autocomplete suggestions to angelscript to support It Takes Two modding better. Only use when modding for It Takes Two specifically since it adds functions exposed specifically in ITT's case.",
-  "version": "1.0.0",
+  "version": "1.1.1",
   "engines": {
     "vscode": "^1.137.0"
   },

@@ -4,6 +4,7 @@ dump:
 
 db:
   @[ -d data/ ] || mkdir -p data/
+  @[ -f data/symbols.db ] && rm data/symbols.db
   npx tsx src/parse/db.ts
 
 precompile: dump db

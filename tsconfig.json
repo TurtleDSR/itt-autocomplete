@@ -23,7 +23,7 @@
         // "noUnusedParameters": true,  /* Report errors on unused parameters. */
     },
     "exclude": [
-      "src/parse/dump.ts",
+      "src/parse/dump/scriptsdump.ts",
       "src/parse/parser.ts",
       "src/parse/db.ts",
     ],
